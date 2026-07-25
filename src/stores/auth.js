@@ -81,7 +81,21 @@ export const useAuthStore = defineStore('auth', () => {
       cargando.value = false
     }
   }
-
+  async function actualizarPerfil(payload) {
+    cargando.value = true
+    error.value = null
+    try {
+      const { data } = await api.put('/perfil', payload)
+      user.value = data
+      localStorage.setItem('user', JSON.stringify(data))
+      return true
+    } catch (e) {
+      error.value = e.response?.data?.message || 'No se pudo actualizar el perfil.'
+      return false
+    } finally {
+      cargando.value = false
+    }
+  }
   async function logout() {
     try { await api.post('/logout') } catch (e) { /* el token ya puede estar muerto */ }
     user.value = null
@@ -93,6 +107,6 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user, token, cargando, error,
     autenticado, esAdmin, esSuperadmin, puedeGestionar,
-    login, loginConGoogle, registrar, logout,
+    login, loginConGoogle, registrar, actualizarPerfil, logout,
   }
 })

@@ -7,10 +7,12 @@ const routes = [
   { path: '/recuperar', name: 'recuperar', component: () => import('../views/RecuperarPassword.vue'), meta: { publica: true } },
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue') },
+  { path: '/perfil', name: 'perfil', component: () => import('../views/Perfil.vue') },
   { path: '/reportes', name: 'reportes', component: () => import('../views/Reportes.vue') },
   { path: '/reportes/:id', name: 'reporte-detalle', component: () => import('../views/ReporteDetalle.vue') },
   { path: '/categorias', name: 'categorias', component: () => import('../views/Categorias.vue'), meta: { soloAdmin: true } },
   { path: '/usuarios', name: 'usuarios', component: () => import('../views/Usuarios.vue'), meta: { soloAdmin: true } },
+  { path: '/mapa', name: 'mapa', component: () => import('../views/MapaGeneral.vue') },
   { path: '/organizaciones', name: 'organizaciones', component: () => import('../views/Organizaciones.vue'), meta: { soloSuperadmin: true } },
 ]
 

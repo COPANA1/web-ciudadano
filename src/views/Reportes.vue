@@ -3,384 +3,391 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 
-const auth = useAuthStore()
 const router = useRouter()
+const auth = useAuthStore()
+const toast = useToast()
 
 const reportes = ref([])
 const categorias = ref([])
-const personal = ref([])
 const cargando = ref(true)
 const error = ref(null)
-const exportando = ref(false)
 
-const paginacion = ref({ actual: 1, ultima: 1, total: 0 })
-const filtros = ref({ estado: '', categoria_id: '', prioridad: '', buscar: '' })
+const filtroCategoria = ref('')
+const busqueda = ref('')
 
-const ESTADOS = {
-  pendiente: 'Pendiente',
-  en_proceso: 'En proceso',
-  resuelto: 'Resuelto',
-}
+const arrastrando = ref(null)
+const columnaHover = ref(null)
 
-const hayFiltros = computed(() =>
-  Object.values(filtros.value).some(v => v !== '')
-)
+const COLUMNAS = [
+  { estado: 'pendiente', titulo: 'Pendiente', color: '#F2994A' },
+  { estado: 'en_proceso', titulo: 'En proceso', color: '#2D9CDB' },
+  { estado: 'resuelto', titulo: 'Resuelto', color: '#27AE60' },
+]
 
-async function cargar(pagina = 1) {
+const PRIORIDAD_COLOR = { alta: '#EB5757', media: '#F2C94C', baja: '#7A8B9C' }
+
+async function cargar() {
   cargando.value = true
   error.value = null
   try {
-    const params = Object.fromEntries(
-      Object.entries(filtros.value).filter(([, v]) => v !== '')
-    )
-    params.page = pagina
-
+    const params = { per_page: 200 }
+    if (filtroCategoria.value) params.categoria_id = filtroCategoria.value
+    if (busqueda.value) params.buscar = busqueda.value
     const { data } = await api.get('/reportes', { params })
-    reportes.value = data.data
-    paginacion.value = {
-      actual: data.current_page,
-      ultima: data.last_page,
-      total: data.total,
-    }
+    reportes.value = data.data || data
   } catch (e) {
-    error.value = 'No se pudieron cargar los reportes.'
+    error.value = e.response?.data?.message || 'No se pudieron cargar los reportes.'
   } finally {
     cargando.value = false
   }
 }
 
-async function cargarAuxiliares() {
+async function cargarCategorias() {
   try {
     const { data } = await api.get('/categorias')
-    categorias.value = data
-  } catch (e) { /* silencioso */ }
-
-  if (auth.esAdmin) {
-    try {
-      const { data } = await api.get('/usuarios', { params: { rol: 'personal', per_page: 100 } })
-      personal.value = data.data
-    } catch (e) { /* silencioso */ }
-  }
-}
-
-function limpiarFiltros() {
-  filtros.value = { estado: '', categoria_id: '', prioridad: '', buscar: '' }
-  cargar(1)
-}
-
-async function asignar(reporte, userId) {
-  try {
-    if (!userId) return
-    await api.put(`/reportes/${reporte.id}/asignar`, { asignado_a: userId })
-    await cargar(paginacion.value.actual)
+    categorias.value = data.data || data
   } catch (e) {
-    alert(e.response?.data?.message || 'No se pudo asignar el reporte.')
+    categorias.value = []
   }
 }
 
-function verDetalle(id) {
-  router.push(`/reportes/${id}`)
-}
-
-/* Exportar todos los reportes (respetando filtros) a CSV */
-async function exportar() {
-  exportando.value = true
-  try {
-    const params = Object.fromEntries(
-      Object.entries(filtros.value).filter(([, v]) => v !== '')
-    )
-    params.per_page = 1000
-
-    const { data } = await api.get('/reportes', { params })
-    const filas = data.data
-
-    const encabezados = [
-      'ID', 'Titulo', 'Descripcion', 'Categoria', 'Estado', 'Prioridad',
-      'Direccion', 'Latitud', 'Longitud', 'Reportado por', 'Asignado a',
-      'Fecha reporte', 'Fecha resolucion',
-    ]
-
-    const escapar = (v) => {
-      const s = String(v ?? '').replace(/"/g, '""')
-      return `"${s}"`
-    }
-
-    const lineas = filas.map(r => [
-      r.id,
-      r.titulo,
-      r.descripcion,
-      r.categoria?.nombre || '',
-      ESTADOS[r.estado] || r.estado,
-      r.prioridad,
-      r.direccion || '',
-      r.latitud,
-      r.longitud,
-      r.user?.name || '',
-      r.asignado?.name || 'Sin asignar',
-      new Date(r.created_at).toLocaleString('es-PE'),
-      r.resuelto_en ? new Date(r.resuelto_en).toLocaleString('es-PE') : '',
-    ].map(escapar).join(','))
-
-    // BOM para que Excel lea bien las tildes
-    const csv = '\uFEFF' + [encabezados.map(escapar).join(','), ...lineas].join('\n')
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const enlace = document.createElement('a')
-    enlace.href = url
-    enlace.download = `reportes_${new Date().toISOString().slice(0, 10)}.csv`
-    enlace.click()
-    URL.revokeObjectURL(url)
-  } catch (e) {
-    alert('No se pudo exportar. Intenta de nuevo.')
-  } finally {
-    exportando.value = false
+const porColumna = computed(() => {
+  const grupos = { pendiente: [], en_proceso: [], resuelto: [] }
+  for (const r of reportes.value) {
+    ;(grupos[r.estado] || grupos.pendiente).push(r)
   }
-}
+  return grupos
+})
 
-function fecha(iso) {
-  return new Date(iso).toLocaleDateString('es-PE', {
-    day: '2-digit', month: 'short', year: '2-digit'
-  })
+function fotoPortada(r) {
+  const img = r.imagenes?.[0]
+  return img?.url || null
 }
 
 function diasAbierto(r) {
-  if (r.estado === 'resuelto') return null
-  return Math.floor((Date.now() - new Date(r.created_at)) / 86400000)
+  const inicio = new Date(r.created_at)
+  const fin = r.resuelto_en ? new Date(r.resuelto_en) : new Date()
+  return Math.floor((fin - inicio) / 86400000)
 }
 
-onMounted(async () => {
-  await Promise.all([cargar(), cargarAuxiliares()])
+// --- Drag & drop (escritorio) ---
+function iniciarArrastre(reporte) {
+  if (!auth.puedeGestionar) return
+  arrastrando.value = reporte
+}
+
+function permitirSoltar(e, estado) {
+  if (!arrastrando.value) return
+  e.preventDefault()
+  columnaHover.value = estado
+}
+
+function salirColumna() {
+  columnaHover.value = null
+}
+
+async function soltar(nuevoEstado) {
+  const reporte = arrastrando.value
+  columnaHover.value = null
+  arrastrando.value = null
+
+  if (!reporte || reporte.estado === nuevoEstado) return
+  await cambiarEstado(reporte, nuevoEstado)
+}
+
+// --- Mover con botones (móvil: el drag & drop no funciona con el dedo) ---
+async function moverA(reporte, nuevoEstado) {
+  if (!auth.puedeGestionar || reporte.estado === nuevoEstado) return
+  await cambiarEstado(reporte, nuevoEstado)
+}
+
+// Lógica compartida por el arrastre y los botones
+async function cambiarEstado(reporte, nuevoEstado) {
+  const estadoPrevio = reporte.estado
+  reporte.estado = nuevoEstado  // optimista
+
+  const nombres = { pendiente: 'Pendiente', en_proceso: 'En proceso', resuelto: 'Resuelto' }
+
+  try {
+    await api.put(`/reportes/${reporte.id}/estado`, { estado: nuevoEstado })
+    reporte.resuelto_en = nuevoEstado === 'resuelto' ? new Date().toISOString() : null
+    toast.exito(`Reporte #${reporte.id} movido a ${nombres[nuevoEstado]}`)
+  } catch (e) {
+    reporte.estado = estadoPrevio  // revertir si falla
+    toast.error(e.response?.data?.message || 'No se pudo cambiar el estado.')
+  }
+}
+
+function abrirDetalle(id) {
+  router.push(`/reportes/${id}`)
+}
+
+onMounted(() => {
+  cargar()
+  cargarCategorias()
 })
 </script>
 
 <template>
-  <div>
-    <header class="cabecera">
+  <div class="kanban-vista">
+    <div class="encabezado">
       <div>
-        <h1>Reportes</h1>
-        <p>{{ paginacion.total }} reportes en total</p>
+        <h1 class="titulo">Reportes</h1>
+        <p class="subtitulo">Arrastra las tarjetas para cambiar su estado</p>
       </div>
-      <button
-        class="btn"
-        :disabled="exportando || !reportes.length"
-        @click="exportar"
-      >
-        {{ exportando ? 'Exportando…' : '↓ Exportar a Excel' }}
-      </button>
-    </header>
+    </div>
 
-    <section class="filtros">
+    <div class="filtros">
       <input
-        v-model="filtros.buscar"
+        v-model="busqueda"
         class="campo"
-        placeholder="Buscar por título, descripción o dirección…"
-        @keyup.enter="cargar(1)"
+        placeholder="Buscar por título o descripción…"
+        @keyup.enter="cargar"
       >
-      <select v-model="filtros.estado" class="campo" @change="cargar(1)">
-        <option value="">Todos los estados</option>
-        <option value="pendiente">Pendiente</option>
-        <option value="en_proceso">En proceso</option>
-        <option value="resuelto">Resuelto</option>
-      </select>
-      <select v-model="filtros.categoria_id" class="campo" @change="cargar(1)">
+      <select v-model="filtroCategoria" class="campo" @change="cargar">
         <option value="">Todas las categorías</option>
         <option v-for="c in categorias" :key="c.id" :value="c.id">{{ c.nombre }}</option>
       </select>
-      <select v-model="filtros.prioridad" class="campo" @change="cargar(1)">
-        <option value="">Toda prioridad</option>
-        <option value="alta">Alta</option>
-        <option value="media">Media</option>
-        <option value="baja">Baja</option>
-      </select>
-      <button class="btn" @click="cargar(1)">Filtrar</button>
-      <button v-if="hayFiltros" class="btn" @click="limpiarFiltros">Limpiar</button>
-    </section>
+      <button class="btn" @click="cargar">Filtrar</button>
+    </div>
 
-    <p v-if="cargando" class="aviso">Cargando reportes…</p>
-    <p v-else-if="error" class="aviso error">{{ error }}</p>
-    <p v-else-if="!reportes.length" class="aviso">
-      No hay reportes que coincidan con estos filtros.
-    </p>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="cargando" class="cargando">Cargando reportes…</p>
 
-    <template v-else>
-      <table class="tabla">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Reporte</th>
-            <th>Categoría</th>
-            <th>Prioridad</th>
-            <th>Estado</th>
-            <th>Asignado</th>
-            <th>Fecha</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="r in reportes"
+    <div v-else class="tablero">
+      <div
+        v-for="col in COLUMNAS"
+        :key="col.estado"
+        class="columna"
+        :class="{ 'columna-hover': columnaHover === col.estado }"
+        @dragover="permitirSoltar($event, col.estado)"
+        @dragleave="salirColumna"
+        @drop="soltar(col.estado)"
+      >
+        <div class="columna-cabecera">
+          <span class="columna-punto" :style="{ background: col.color }"></span>
+          <span class="columna-titulo">{{ col.titulo }}</span>
+          <span class="columna-conteo">{{ porColumna[col.estado].length }}</span>
+        </div>
+
+        <div class="columna-cuerpo">
+          <article
+            v-for="r in porColumna[col.estado]"
             :key="r.id"
-            class="fila"
-            @click="verDetalle(r.id)"
+            class="tarjeta"
+            :class="{ 'tarjeta-arrastrando': arrastrando?.id === r.id }"
+            :draggable="auth.puedeGestionar"
+            @dragstart="iniciarArrastre(r)"
+            @dragend="arrastrando = null"
+            @click="abrirDetalle(r.id)"
           >
-            <td class="mono id">#{{ r.id }}</td>
-            <td>
-              <div class="titulo">{{ r.titulo }}</div>
-              <div class="direccion">{{ r.direccion || 'Sin dirección' }}</div>
-            </td>
-            <td>
-              <span class="punto" :style="{ background: r.categoria?.color || '#7A8B9C' }"></span>
-              {{ r.categoria?.nombre || '—' }}
-            </td>
-            <td>
-              <span class="chip" :class="`chip-${r.prioridad}`">{{ r.prioridad }}</span>
-            </td>
-            <td>
-              <span class="chip" :class="`chip-${r.estado}`">{{ ESTADOS[r.estado] }}</span>
-              <span
-                v-if="diasAbierto(r) > 14"
-                class="alerta mono"
-                title="Lleva más de 2 semanas sin resolverse"
-              >{{ diasAbierto(r) }}d</span>
-            </td>
-            <td class="asignado" @click.stop>
-              <select
-                v-if="auth.esAdmin"
-                class="campo mini"
-                :value="r.asignado_a || ''"
-                @change="asignar(r, $event.target.value)"
-              >
-                <option value="">Sin asignar</option>
-                <option v-for="p in personal" :key="p.id" :value="p.id">{{ p.name }}</option>
-              </select>
-              <span v-else class="sec">{{ r.asignado?.name || '—' }}</span>
-            </td>
-            <td class="mono fecha">{{ fecha(r.created_at) }}</td>
-            <td class="flecha">→</td>
-          </tr>
-        </tbody>
-      </table>
+            <div v-if="fotoPortada(r)" class="tarjeta-foto">
+              <img :src="fotoPortada(r)" :alt="r.titulo">
+            </div>
+            <div v-else class="tarjeta-foto tarjeta-foto-vacia">
+              <span>Sin foto</span>
+            </div>
 
-      <nav v-if="paginacion.ultima > 1" class="paginacion">
-        <button
-          class="btn mini"
-          :disabled="paginacion.actual === 1"
-          @click="cargar(paginacion.actual - 1)"
-        >← Anterior</button>
+            <div class="tarjeta-cuerpo">
+              <div class="tarjeta-top">
+                <span class="tarjeta-id mono">#{{ r.id }}</span>
+                <span
+                  class="tarjeta-prioridad"
+                  :style="{ color: PRIORIDAD_COLOR[r.prioridad], borderColor: PRIORIDAD_COLOR[r.prioridad] }"
+                >{{ r.prioridad }}</span>
+              </div>
 
-        <span class="pagina mono">
-          Página {{ paginacion.actual }} de {{ paginacion.ultima }}
-        </span>
+              <h3 class="tarjeta-titulo">{{ r.titulo }}</h3>
 
-        <button
-          class="btn mini"
-          :disabled="paginacion.actual === paginacion.ultima"
-          @click="cargar(paginacion.actual + 1)"
-        >Siguiente →</button>
-      </nav>
-    </template>
+              <div v-if="r.categoria" class="tarjeta-categoria">
+                <span class="punto" :style="{ background: r.categoria.color }"></span>
+                {{ r.categoria.nombre }}
+              </div>
+
+              <div class="tarjeta-pie">
+                <span class="tarjeta-asignado">
+                  {{ r.asignado?.name || 'Sin asignar' }}
+                </span>
+                <span class="tarjeta-dias">{{ diasAbierto(r) }}d</span>
+              </div>
+
+              <div v-if="auth.puedeGestionar" class="mover-movil" @click.stop>
+                <button
+                  v-for="c in COLUMNAS.filter(c => c.estado !== r.estado)"
+                  :key="c.estado"
+                  class="btn-mover"
+                  :style="{ borderColor: c.color, color: c.color }"
+                  @click="moverA(r, c.estado)"
+                >
+                  → {{ c.titulo }}
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <p v-if="!porColumna[col.estado].length" class="columna-vacia">
+            Sin reportes
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.cabecera {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--borde);
-}
-.cabecera h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
-.cabecera p { color: var(--texto-sec); font-size: 13px; }
-.cabecera .btn:disabled { opacity: .4; cursor: not-allowed; }
+.encabezado { margin-bottom: 18px; }
+.titulo { font-size: 22px; font-weight: 600; }
+.subtitulo { font-size: 13px; color: var(--texto-sec); margin-top: 4px; }
 
-.filtros {
+.filtros { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+.filtros .campo { max-width: 280px; }
+
+.error {
+  background: rgba(235,87,87,.12);
+  border: 1px solid rgba(235,87,87,.3);
+  color: var(--alta);
+  padding: 10px 12px;
+  border-radius: 5px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.cargando { color: var(--texto-sec); padding: 40px 0; text-align: center; }
+
+.tablero {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr auto auto;
-  gap: 8px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  align-items: start;
 }
 
-.aviso { color: var(--texto-sec); padding: 60px 0; text-align: center; }
-.aviso.error { color: var(--alta); }
-
-.tabla {
-  width: 100%;
-  border-collapse: collapse;
-  background: #161D26;
+.columna {
+  background: var(--superficie);
   border: 1px solid var(--borde);
   border-radius: 10px;
-  overflow: hidden;
+  padding: 14px;
+  min-height: 200px;
+  transition: background .15s, border-color .15s;
 }
-.tabla th {
-  text-align: left;
-  padding: 12px 16px;
-  font-size: 10px;
-  font-weight: 600;
+.columna-hover {
+  background: var(--superficie-alta);
+  border-color: var(--acento);
+}
+
+.columna-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--borde);
+}
+.columna-punto { width: 9px; height: 9px; border-radius: 50%; }
+.columna-titulo { font-size: 13px; font-weight: 600; flex: 1; }
+.columna-conteo {
+  font-size: 11px;
   color: var(--texto-sec);
-  text-transform: uppercase;
-  letter-spacing: .07em;
-  border-bottom: 1px solid var(--borde);
-}
-.tabla td {
-  padding: 13px 16px;
-  border-bottom: 1px solid var(--borde);
-  vertical-align: middle;
-}
-.tabla tbody tr:last-child td { border-bottom: none; }
-
-.fila { cursor: pointer; transition: background .12s; }
-.fila:hover { background: var(--superficie-alta); }
-.fila:hover .flecha { color: var(--acento); }
-
-.id { color: var(--texto-sec); font-size: 12px; }
-.titulo { font-weight: 500; margin-bottom: 2px; }
-.direccion { font-size: 12px; color: var(--texto-sec); }
-.fecha { font-size: 12px; color: var(--texto-sec); }
-.sec { color: var(--texto-sec); }
-
-.flecha {
-  color: var(--borde);
-  text-align: right;
-  transition: color .12s;
+  background: var(--fondo);
+  border-radius: 10px;
+  padding: 2px 9px;
+  font-family: var(--mono);
 }
 
-.punto {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 2px;
-  margin-right: 8px;
+.columna-cuerpo { display: flex; flex-direction: column; gap: 10px; }
+
+.tarjeta {
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s, transform .1s;
 }
+.tarjeta:hover { border-color: var(--acento); }
+.tarjeta:active { transform: scale(.98); }
+.tarjeta-arrastrando { opacity: .4; }
 
-.alerta {
-  display: inline-block;
-  margin-left: 6px;
-  font-size: 10px;
-  color: var(--alta);
-  background: rgba(235,87,87,.12);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 600;
-}
-
-.mini { padding: 5px 11px; font-size: 12px; }
-.asignado .campo.mini { padding: 5px 8px; font-size: 12px; min-width: 130px; }
-
-.paginacion {
+.tarjeta-foto { height: 110px; background: var(--superficie); }
+.tarjeta-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tarjeta-foto-vacia {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  margin-top: 20px;
+  color: var(--texto-sec);
+  font-size: 11px;
+  opacity: .5;
 }
-.paginacion .btn:disabled { opacity: .35; cursor: not-allowed; }
-.pagina { font-size: 12px; color: var(--texto-sec); }
 
-@media (max-width: 1100px) {
-  .filtros { grid-template-columns: 1fr 1fr; }
-  .tabla { display: block; overflow-x: auto; white-space: nowrap; }
+.tarjeta-cuerpo { padding: 12px; }
+.tarjeta-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.tarjeta-id { font-size: 11px; color: var(--texto-sec); }
+.tarjeta-prioridad {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.tarjeta-titulo { font-size: 14px; font-weight: 500; line-height: 1.3; margin-bottom: 8px; }
+.tarjeta-categoria {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--texto-sec);
+  margin-bottom: 10px;
+}
+.punto { width: 7px; height: 7px; border-radius: 2px; }
+
+.tarjeta-pie {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--borde);
+}
+.tarjeta-asignado { font-size: 11px; color: var(--texto-sec); }
+.tarjeta-dias {
+  font-size: 11px;
+  color: var(--texto-sec);
+  font-family: var(--mono);
+}
+
+.columna-vacia {
+  text-align: center;
+  color: var(--texto-sec);
+  font-size: 12px;
+  opacity: .5;
+  padding: 30px 0;
+}
+
+/* Los botones de mover solo se muestran en pantallas pequeñas */
+.mover-movil { display: none; }
+
+@media (max-width: 900px) {
+  .tablero { grid-template-columns: 1fr; }
+  .subtitulo { display: none; }
+  .titulo { font-size: 19px; }
+  .filtros .campo { max-width: none; flex: 1 1 100%; }
+  .tarjeta-foto { height: 140px; }
+
+  .mover-movil {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--borde);
+  }
+  .btn-mover {
+    flex: 1;
+    background: none;
+    border: 1px solid;
+    border-radius: 5px;
+    padding: 7px 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
 }
 </style>
