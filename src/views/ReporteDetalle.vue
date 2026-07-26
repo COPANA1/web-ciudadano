@@ -56,6 +56,41 @@ const imagenesPorTipo = computed(() => {
   return grupos
 })
 
+// ---------- Notas de voz ----------
+const audios = ref([])
+const cargandoAudios = ref(true)
+
+async function cargarAudios() {
+  cargandoAudios.value = true
+  try {
+    const { data } = await api.get(`/reportes/${route.params.id}/audios`)
+    audios.value = Array.isArray(data) ? data : (data.data || [])
+  } catch (e) {
+    audios.value = []
+  } finally {
+    cargandoAudios.value = false
+  }
+}
+
+async function eliminarAudio(audio) {
+  if (!confirm('¿Eliminar esta nota de voz?')) return
+  try {
+    await api.delete(`/reportes/${reporte.value.id}/audios/${audio.id}`)
+    await cargarAudios()
+    toast.exito('Nota de voz eliminada')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo eliminar.')
+  }
+}
+
+function duracionTexto(seg) {
+  const s = Number(seg) || 0
+  if (s <= 0) return ''
+  const m = String(Math.floor(s / 60)).padStart(2, '0')
+  const r = String(s % 60).padStart(2, '0')
+  return `${m}:${r}`
+}
+
 async function cargar() {
   cargando.value = true
   try {
@@ -286,7 +321,10 @@ const diasAbierto = computed(() => {
   return Math.floor((fin - inicio) / 86400000)
 })
 
-onMounted(cargar)
+onMounted(() => {
+  cargar()
+  cargarAudios()
+})
 onUnmounted(() => {
   detenerCamara()
   observador?.disconnect()
@@ -376,6 +414,37 @@ onUnmounted(() => {
               </div>
             </div>
             <p v-else class="vacio">Sin fotos en esta etapa.</p>
+          </section>
+
+          <section class="tarjeta">
+            <div class="tarjeta-cabecera">
+              <div>
+                <h2>Notas de voz</h2>
+                <p class="seccion-desc">Audio enviado desde la app móvil</p>
+              </div>
+            </div>
+
+            <p v-if="cargandoAudios" class="vacio">Cargando…</p>
+
+            <div v-else-if="audios.length" class="lista-audios">
+              <div v-for="a in audios" :key="a.id" class="audio-item">
+                <div class="audio-datos">
+                  <span class="audio-autor">{{ a.user?.name || 'Usuario' }}</span>
+                  <span v-if="duracionTexto(a.duracion)" class="audio-dur mono">
+                    {{ duracionTexto(a.duracion) }}
+                  </span>
+                </div>
+                <audio :src="a.url" controls preload="none" class="audio-player"></audio>
+                <button
+                  v-if="auth.puedeGestionar"
+                  class="fa-btn fa-del audio-borrar"
+                  title="Eliminar"
+                  @click="eliminarAudio(a)"
+                >✕</button>
+              </div>
+            </div>
+
+            <p v-else class="vacio">Sin notas de voz.</p>
           </section>
 
           <section class="tarjeta">
@@ -509,6 +578,25 @@ onUnmounted(() => {
 .fa-del { color: var(--alta); }
 .fa-del:hover { background: var(--alta); color: #fff; }
 .fa-mover { flex: 1; min-width: 0; background: rgba(15,20,25,.88); border: 1px solid var(--borde); border-radius: 4px; color: var(--texto); font-size: 10px; padding: 2px 4px; height: 22px; }
+
+/* ---------- Notas de voz ---------- */
+.lista-audios { display: flex; flex-direction: column; gap: 12px; }
+.audio-item {
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.audio-datos { display: flex; flex-direction: column; min-width: 110px; }
+.audio-autor { font-size: 13px; font-weight: 500; }
+.audio-dur { font-size: 11px; color: var(--texto-sec); }
+.audio-player { flex: 1; min-width: 200px; height: 36px; }
+.audio-borrar { opacity: 1; }
+
 .mapa { height: 220px; min-height: 220px; border-radius: 6px; border: 1px solid var(--borde); background: var(--fondo); position: relative; z-index: 1; }
 .coords { font-size: 11px; color: var(--texto-sec); margin-top: 8px; }
 .botones-estado { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
@@ -549,5 +637,7 @@ onUnmounted(() => {
   .cabecera { flex-direction: column; }
   .antiguedad { text-align: left; }
   .opciones { grid-template-columns: 1fr; }
+  .audio-item { flex-direction: column; align-items: stretch; }
+  .audio-player { width: 100%; }
 }
 </style>
