@@ -210,7 +210,16 @@ onMounted(() => {
                 <span class="tarjeta-asignado">
                   {{ r.asignado?.name || 'Sin asignar' }}
                 </span>
-                <span class="tarjeta-dias">{{ diasAbierto(r) }}d</span>
+                <span class="pie-derecha">
+                  <span
+                    v-if="r.confirmaciones_count"
+                    class="tarjeta-confirma"
+                    title="Ciudadanos que confirmaron esta incidencia"
+                  >
+                    👁 {{ r.confirmaciones_count }}
+                  </span>
+                  <span class="tarjeta-dias">{{ diasAbierto(r) }}d</span>
+                </span>
               </div>
 
               <div v-if="auth.puedeGestionar" class="mover-movil" @click.stop>
@@ -347,8 +356,18 @@ onMounted(() => {
   justify-content: space-between;
   padding-top: 10px;
   border-top: 1px solid var(--borde);
+  gap: 8px;
 }
 .tarjeta-asignado { font-size: 11px; color: var(--texto-sec); }
+.pie-derecha { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tarjeta-confirma {
+  font-size: 11px;
+  color: var(--acento);
+  background: rgba(45,156,219,.15);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 600;
+}
 .tarjeta-dias {
   font-size: 11px;
   color: var(--texto-sec);

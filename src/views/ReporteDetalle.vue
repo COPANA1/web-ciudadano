@@ -371,6 +371,13 @@ onUnmounted(() => {
               <div><dt>Reportado por</dt><dd>{{ reporte.user?.name || '—' }}</dd></div>
               <div><dt>Asignado a</dt><dd>{{ reporte.asignado?.name || 'Sin asignar' }}</dd></div>
               <div><dt>Fecha del reporte</dt><dd>{{ fechaLarga(reporte.created_at) }}</dd></div>
+              <div v-if="reporte.confirmaciones_count">
+                <dt>Confirmado por</dt>
+                <dd>
+                  <span class="badge-confirma">👁 {{ reporte.confirmaciones_count }}</span>
+                  {{ reporte.confirmaciones_count === 1 ? 'ciudadano' : 'ciudadanos' }}
+                </dd>
+              </div>
             </dl>
           </section>
 
@@ -453,6 +460,28 @@ onUnmounted(() => {
             <p class="coords mono">
               {{ parseFloat(reporte.latitud).toFixed(5) }}, {{ parseFloat(reporte.longitud).toFixed(5) }}
             </p>
+          </section>
+          <section v-if="reporte.calificaciones?.length" class="tarjeta">
+            <div class="tarjeta-cabecera">
+              <div>
+                <h2>Satisfacción ciudadana</h2>
+                <p class="seccion-desc">Cómo calificó el ciudadano la solución</p>
+              </div>
+            </div>
+
+            <div v-for="c in reporte.calificaciones" :key="c.id" class="calif-item">
+              <div class="calif-estrellas">
+                <span
+                  v-for="n in 5"
+                  :key="n"
+                  class="estrella"
+                  :class="{ activa: n <= c.puntaje }"
+                >★</span>
+                <span class="calif-num mono">{{ c.puntaje }}/5</span>
+              </div>
+              <p v-if="c.comentario" class="calif-comentario">{{ c.comentario }}</p>
+              <p class="calif-autor">{{ c.user?.name || 'Ciudadano' }} · {{ fechaCorta(c.created_at) }}</p>
+            </div>
           </section>
         </div>
 
@@ -578,7 +607,14 @@ onUnmounted(() => {
 .fa-del { color: var(--alta); }
 .fa-del:hover { background: var(--alta); color: #fff; }
 .fa-mover { flex: 1; min-width: 0; background: rgba(15,20,25,.88); border: 1px solid var(--borde); border-radius: 4px; color: var(--texto); font-size: 10px; padding: 2px 4px; height: 22px; }
-
+.badge-confirma {
+  background: rgba(45,156,219,.15);
+  color: var(--acento);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
 /* ---------- Notas de voz ---------- */
 .lista-audios { display: flex; flex-direction: column; gap: 12px; }
 .audio-item {
@@ -640,4 +676,12 @@ onUnmounted(() => {
   .audio-item { flex-direction: column; align-items: stretch; }
   .audio-player { width: 100%; }
 }
+.calif-item { padding: 12px; background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; }
+.calif-item + .calif-item { margin-top: 10px; }
+.calif-estrellas { display: flex; align-items: center; gap: 2px; margin-bottom: 8px; }
+.estrella { font-size: 20px; color: var(--borde); line-height: 1; }
+.estrella.activa { color: #F2C94C; }
+.calif-num { font-size: 12px; color: var(--texto-sec); margin-left: 8px; }
+.calif-comentario { font-size: 13px; line-height: 1.5; margin-bottom: 6px; padding: 8px 10px; background: var(--superficie); border-radius: 4px; border-left: 2px solid var(--borde); }
+.calif-autor { font-size: 11px; color: var(--texto-sec); opacity: .7; }
 </style>
