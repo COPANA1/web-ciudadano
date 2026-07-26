@@ -91,6 +91,55 @@ function duracionTexto(seg) {
   return `${m}:${r}`
 }
 
+// ---------- Comentarios ----------
+const comentarios = ref([])
+const cargandoComentarios = ref(true)
+const nuevoComentario = ref('')
+const enviandoComentario = ref(false)
+
+async function cargarComentarios() {
+  cargandoComentarios.value = true
+  try {
+    const { data } = await api.get(`/reportes/${route.params.id}/comentarios`)
+    comentarios.value = Array.isArray(data) ? data : (data.data || [])
+  } catch (e) {
+    comentarios.value = []
+  } finally {
+    cargandoComentarios.value = false
+  }
+}
+
+async function enviarComentario() {
+  const texto = nuevoComentario.value.trim()
+  if (!texto) return
+  enviandoComentario.value = true
+  try {
+    await api.post(`/reportes/${reporte.value.id}/comentarios`, { texto })
+    nuevoComentario.value = ''
+    await cargarComentarios()
+    toast.exito('Comentario enviado')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo enviar el comentario.')
+  } finally {
+    enviandoComentario.value = false
+  }
+}
+
+async function eliminarComentario(c) {
+  if (!confirm('¿Eliminar este comentario?')) return
+  try {
+    await api.delete(`/reportes/${reporte.value.id}/comentarios/${c.id}`)
+    await cargarComentarios()
+    toast.exito('Comentario eliminado')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo eliminar.')
+  }
+}
+
+function esAutoridad(rol) {
+  return ['admin', 'personal', 'superadmin'].includes(rol)
+}
+
 async function cargar() {
   cargando.value = true
   try {
@@ -324,6 +373,7 @@ const diasAbierto = computed(() => {
 onMounted(() => {
   cargar()
   cargarAudios()
+  cargarComentarios()
 })
 onUnmounted(() => {
   detenerCamara()
@@ -455,12 +505,69 @@ onUnmounted(() => {
           </section>
 
           <section class="tarjeta">
+            <div class="tarjeta-cabecera">
+              <div>
+                <h2>Comentarios</h2>
+                <p class="seccion-desc">Comunicación con el ciudadano</p>
+              </div>
+              <span v-if="comentarios.length" class="badge-conteo">{{ comentarios.length }}</span>
+            </div>
+
+            <p v-if="cargandoComentarios" class="vacio">Cargando…</p>
+
+            <div v-else-if="comentarios.length" class="hilo">
+              <div
+                v-for="c in comentarios"
+                :key="c.id"
+                class="comentario"
+                :class="{ 'comentario-autoridad': esAutoridad(c.user?.rol) }"
+              >
+                <div class="com-avatar" :class="{ 'com-avatar-aut': esAutoridad(c.user?.rol) }">
+                  {{ (c.user?.name || '?').charAt(0).toUpperCase() }}
+                </div>
+                <div class="com-cuerpo">
+                  <div class="com-cabecera">
+                    <span class="com-nombre">{{ c.user?.name || 'Usuario' }}</span>
+                    <span v-if="esAutoridad(c.user?.rol)" class="com-etiqueta">Autoridad</span>
+                    <span class="com-fecha">{{ fechaCorta(c.created_at) }}</span>
+                    <button
+                      v-if="auth.puedeGestionar"
+                      class="com-borrar"
+                      title="Eliminar"
+                      @click="eliminarComentario(c)"
+                    >✕</button>
+                  </div>
+                  <p class="com-texto">{{ c.texto }}</p>
+                </div>
+              </div>
+            </div>
+
+            <p v-else class="vacio">Sin comentarios todavía.</p>
+
+            <div class="com-form">
+              <textarea
+                v-model="nuevoComentario"
+                class="campo"
+                rows="2"
+                maxlength="1000"
+                placeholder="Escribe una respuesta al ciudadano…"
+              ></textarea>
+              <button
+                class="btn btn-primario"
+                :disabled="enviandoComentario || !nuevoComentario.trim()"
+                @click="enviarComentario"
+              >{{ enviandoComentario ? 'Enviando…' : 'Enviar' }}</button>
+            </div>
+          </section>
+
+          <section class="tarjeta">
             <h2>Ubicación</h2>
             <div ref="mapaEl" class="mapa"></div>
             <p class="coords mono">
               {{ parseFloat(reporte.latitud).toFixed(5) }}, {{ parseFloat(reporte.longitud).toFixed(5) }}
             </p>
           </section>
+
           <section v-if="reporte.calificaciones?.length" class="tarjeta">
             <div class="tarjeta-cabecera">
               <div>
@@ -615,6 +722,7 @@ onUnmounted(() => {
   padding: 2px 8px;
   border-radius: 10px;
 }
+
 /* ---------- Notas de voz ---------- */
 .lista-audios { display: flex; flex-direction: column; gap: 12px; }
 .audio-item {
@@ -632,6 +740,71 @@ onUnmounted(() => {
 .audio-dur { font-size: 11px; color: var(--texto-sec); }
 .audio-player { flex: 1; min-width: 200px; height: 36px; }
 .audio-borrar { opacity: 1; }
+
+/* ---------- Comentarios ---------- */
+.badge-conteo {
+  background: var(--superficie-alta);
+  border: 1px solid var(--borde);
+  color: var(--texto-sec);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-family: var(--mono);
+}
+.hilo { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.comentario { display: flex; gap: 10px; }
+.com-avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--borde);
+  color: var(--texto);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.com-avatar-aut { background: var(--acento); color: #fff; }
+.com-cuerpo { flex: 1; min-width: 0; }
+.com-cabecera { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.com-nombre { font-size: 13px; font-weight: 600; }
+.com-etiqueta {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  background: rgba(45,156,219,.15);
+  color: var(--acento);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.com-fecha { font-size: 11px; color: var(--texto-sec); opacity: .7; }
+.com-borrar {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--texto-sec);
+  font-size: 12px;
+  padding: 2px 6px;
+  opacity: .5;
+}
+.com-borrar:hover { color: var(--alta); opacity: 1; }
+.com-texto {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 9px 12px;
+  background: var(--fondo);
+  border-radius: 6px;
+  border-left: 2px solid var(--borde);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.comentario-autoridad .com-texto { border-left-color: var(--acento); }
+.com-form { display: flex; gap: 10px; align-items: flex-start; padding-top: 14px; border-top: 1px solid var(--borde); }
+.com-form .campo { flex: 1; resize: vertical; }
+.com-form .btn { white-space: nowrap; }
 
 .mapa { height: 220px; min-height: 220px; border-radius: 6px; border: 1px solid var(--borde); background: var(--fondo); position: relative; z-index: 1; }
 .coords { font-size: 11px; color: var(--texto-sec); margin-top: 8px; }
@@ -668,14 +841,7 @@ onUnmounted(() => {
 .cerrar:hover { background: var(--superficie-alta); }
 :deep(.leaflet-tile-pane) { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.7); }
 :deep(.leaflet-container) { background: #0F1419; border-radius: 6px; }
-@media (max-width: 1000px) {
-  .rejilla { grid-template-columns: 1fr; }
-  .cabecera { flex-direction: column; }
-  .antiguedad { text-align: left; }
-  .opciones { grid-template-columns: 1fr; }
-  .audio-item { flex-direction: column; align-items: stretch; }
-  .audio-player { width: 100%; }
-}
+
 .calif-item { padding: 12px; background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; }
 .calif-item + .calif-item { margin-top: 10px; }
 .calif-estrellas { display: flex; align-items: center; gap: 2px; margin-bottom: 8px; }
@@ -684,4 +850,15 @@ onUnmounted(() => {
 .calif-num { font-size: 12px; color: var(--texto-sec); margin-left: 8px; }
 .calif-comentario { font-size: 13px; line-height: 1.5; margin-bottom: 6px; padding: 8px 10px; background: var(--superficie); border-radius: 4px; border-left: 2px solid var(--borde); }
 .calif-autor { font-size: 11px; color: var(--texto-sec); opacity: .7; }
+
+@media (max-width: 1000px) {
+  .rejilla { grid-template-columns: 1fr; }
+  .cabecera { flex-direction: column; }
+  .antiguedad { text-align: left; }
+  .opciones { grid-template-columns: 1fr; }
+  .audio-item { flex-direction: column; align-items: stretch; }
+  .audio-player { width: 100%; }
+  .com-form { flex-direction: column; }
+  .com-form .btn { width: 100%; }
+}
 </style>
