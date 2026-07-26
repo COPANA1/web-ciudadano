@@ -97,6 +97,11 @@ const enProceso  = computed(() => stats.value?.por_estado?.en_proceso || 0)
 const resueltos  = computed(() => stats.value?.por_estado?.resuelto || 0)
 const altas      = computed(() => stats.value?.por_prioridad?.alta || 0)
 
+// Satisfaccion ciudadana
+const satisfaccion = computed(() => stats.value?.satisfaccion || null)
+const totalCalificaciones = computed(() => stats.value?.total_calificaciones || 0)
+const totalConfirmaciones = computed(() => stats.value?.total_confirmaciones || 0)
+
 const porcentajeResuelto = computed(() => total.value ? Math.round((resueltos.value / total.value) * 100) : 0)
 const dias = computed(() => {
   const h = stats.value?.horas_resolucion
@@ -237,6 +242,25 @@ function iniciales(nombre) {
             <div class="kpi-lbl">Resueltos</div>
           </div>
         </article>
+
+        <article v-if="satisfaccion" class="kpi">
+          <div class="kpi-icono ic-satisfaccion">★</div>
+          <div class="kpi-cuerpo">
+            <div class="kpi-num mono">{{ satisfaccion }}</div>
+            <div class="kpi-lbl">
+              Satisfacción · {{ totalCalificaciones }}
+              {{ totalCalificaciones === 1 ? 'voto' : 'votos' }}
+            </div>
+          </div>
+        </article>
+
+        <article v-if="totalConfirmaciones" class="kpi">
+          <div class="kpi-icono ic-confirma">👁</div>
+          <div class="kpi-cuerpo">
+            <div class="kpi-num mono">{{ totalConfirmaciones }}</div>
+            <div class="kpi-lbl">Confirmaciones</div>
+          </div>
+        </article>
       </section>
 
       <!-- Fila principal: mapa grande + tarjeta destacada -->
@@ -275,6 +299,16 @@ function iniciales(nombre) {
               <div class="mini-num mono" style="color: var(--alta)">{{ altas }}</div>
               <div class="mini-lbl">Alta prioridad</div>
             </div>
+          </div>
+
+          <div v-if="satisfaccion" class="estrellas-resumen">
+            <span
+              v-for="n in 5"
+              :key="n"
+              class="estrella-mini"
+              :class="{ activa: n <= Math.round(satisfaccion) }"
+            >★</span>
+            <span class="estrellas-txt mono">{{ satisfaccion }}/5</span>
           </div>
 
           <div class="barra-mini">
@@ -354,7 +388,7 @@ function iniciales(nombre) {
 /* KPIs con íconos */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -381,6 +415,8 @@ function iniciales(nombre) {
 .ic-pendiente { background: rgba(242,153,74,.15);  color: #F2994A; }
 .ic-proceso   { background: rgba(45,156,219,.15);  color: #56CCF2; }
 .ic-resuelto  { background: rgba(39,174,96,.15);   color: #27AE60; }
+.ic-satisfaccion { background: rgba(242,201,76,.15); color: #F2C94C; }
+.ic-confirma  { background: rgba(45,156,219,.15);  color: #56CCF2; font-size: 17px; }
 .kpi-num { font-size: 26px; font-weight: 700; line-height: 1; }
 .kpi-lbl { font-size: 11px; color: var(--texto-sec); text-transform: uppercase; letter-spacing: .05em; margin-top: 5px; }
 
@@ -452,6 +488,18 @@ function iniciales(nombre) {
 .mini-num { font-size: 24px; font-weight: 700; line-height: 1; }
 .mini-lbl { font-size: 10px; color: var(--texto-sec); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
 
+/* Estrellas de satisfacción */
+.estrellas-resumen {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 16px;
+  padding-top: 4px;
+}
+.estrella-mini { font-size: 15px; color: var(--borde); line-height: 1; }
+.estrella-mini.activa { color: #F2C94C; }
+.estrellas-txt { font-size: 11px; color: var(--texto-sec); margin-left: 7px; }
+
 .barra-mini { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--fondo); margin-top: auto; }
 .seg { transition: width .4s; }
 .seg-p { background: var(--pendiente); }
@@ -496,6 +544,5 @@ function iniciales(nombre) {
 @media (max-width: 1250px) {
   .fila-principal { grid-template-columns: 1fr; }
   .fila-inferior { grid-template-columns: 1fr; }
-  .kpis { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
